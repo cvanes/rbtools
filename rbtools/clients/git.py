@@ -394,31 +394,31 @@ class GitClient(SCMClient):
                 #
                 # diff --git a/path/to/file b/path/to/file
                 filename = line.split(" ")[2].strip()
-            elif (line.startswith("index ") 
+            elif (line.startswith("index ")
                   or line.startswith("new file mode ")):
                 # Filter this out.
                 pass
             elif line.startswith("--- "):
                 #see if we can use a more standard p4 call here
-                data = execute(["p4", "files", 
+                data = execute(["p4", "files",
                                 base_path + filename + "@" + p4rev],
                                ignore_errors=True)
-                m = re.search(r'^' + base_path + filename + 
+                m = re.search(r'^' + base_path + filename +
                               '#(\d+).*$', data, re.M)
                 if m:
                     fileVersion = m.group(1).strip()
                 else:
                     fileVersion = 1
 
-                diff_data += "--- %s%s\t%s%s#%s\n" % (base_path, 
-                                                      filename, 
-                                                      base_path, 
-                                                      filename, 
+                diff_data += "--- %s%s\t%s%s#%s\n" % (base_path,
+                                                      filename,
+                                                      base_path,
+                                                      filename,
                                                       fileVersion)
             elif line.startswith("+++ "):
                 #TODO figure out the TIMESTAMP spec
-                diff_data += "+++ %s%s\t%s\n" % (base_path, 
-                                                 filename, 
+                diff_data += "+++ %s%s\t%s\n" % (base_path,
+                                                 filename,
                                                  "TIMESTAMP")
             else:
                 diff_data += line
