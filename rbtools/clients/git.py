@@ -14,6 +14,8 @@ class GitClient(SCMClient):
     compatible diffs. This will attempt to generate a diff suitable for the
     remote repository, whether git, SVN or Perforce.
     """
+    name = 'Git'
+
     def __init__(self, **kwargs):
         super(GitClient, self).__init__(**kwargs)
         # Store the 'correct' way to invoke git, just plain old 'git' by
@@ -66,7 +68,7 @@ class GitClient(SCMClient):
         # repository was specified on command line.
         git_svn_dir = os.path.join(git_dir, 'svn')
 
-        if (not self.options.repository_url and
+        if (not getattr(self.options, 'repository_url', None) and
             os.path.isdir(git_svn_dir) and len(os.listdir(git_svn_dir)) > 0):
             data = execute([self.git, "svn", "info"], ignore_errors=True)
 
@@ -158,7 +160,7 @@ class GitClient(SCMClient):
                 self.upstream_branch = '%s/%s' % (remote, merge)
 
         url = None
-        if self.options.repository_url:
+        if getattr(self.options, 'repository_url', None):
             url = self.options.repository_url
             self.upstream_branch = self.get_origin(self.upstream_branch, True)[0]
         else:
@@ -190,7 +192,7 @@ class GitClient(SCMClient):
 
         Returns a tuple: (upstream_branch, remote_url)
         """
-        upstream_branch = (self.options.tracking or
+        upstream_branch = (getattr(self.options, 'tracking', None) or
                            default_upstream_branch or
                            'origin/master')
         upstream_remote = upstream_branch.split('/')[0]
@@ -264,12 +266,14 @@ class GitClient(SCMClient):
             diff_lines = self.make_diff(self.merge_base, head_ref)
             parent_diff_lines = None
 
-        if self.options.guess_summary and not self.options.summary:
+        if (getattr(self.options, 'guess_summary', None) and
+            not getattr(self.options, 'summary', None)):
             s = execute([self.git, "log", "--pretty=format:%s", "HEAD^.."],
                               ignore_errors=True)
             self.options.summary = s.replace('\n', ' ').strip()
 
-        if self.options.guess_description and not self.options.description:
+        if (getattr(self.options, 'guess_description', None) and
+            not getattr(self.options, 'description', None)):
             self.options.description = execute(
                 [self.git, "log", "--pretty=format:%s%n%n%b",
                  (parent_branch or self.merge_base) + ".."],
@@ -298,8 +302,15 @@ class GitClient(SCMClient):
                                  split_lines=True)
             return self.make_perforce_diff(ancestor, diff_lines)
         elif self.type == "git":
-            return execute([self.git, "diff", "--no-color", "--full-index",
-                            "--no-ext-diff", "--ignore-submodules", rev_range])
+            cmdline = [self.git, "diff", "--no-color", "--full-index",
+                       "--no-ext-diff", "--ignore-submodules", "--no-renames",
+                       rev_range]
+
+            if (self.capabilities is not None and
+                self.capabilities.has_capability('diffs', 'moved_files')):
+                cmdline.append('-M')
+
+            return execute(cmdline)
 
         return None
 
@@ -468,3 +479,15 @@ class GitClient(SCMClient):
                     ignore_errors=True).strip()
 
             return (self.make_diff(r1, r2), parent_diff_lines)
+
+    def apply_patch(self, patch_file, base_path=None, base_dir=None, p=None):
+        """
+        Apply the patch patch_file and return True if the patch was
+        successful, otherwise return False.
+        """
+        if p:
+            cmd = ['git', 'apply', '-p', p, patch_file]
+        else:
+            cmd = ['git', 'apply', patch_file]
+
+        self._execute(cmd)

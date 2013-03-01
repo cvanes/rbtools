@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from pkg_resources import parse_version
 
 from rbtools.api.errors import APIError
 from rbtools.clients import SCMClient, RepositoryInfo
@@ -23,6 +24,7 @@ class ClearCaseClient(SCMClient):
     information and generates compatible diffs.
     This client assumes that cygwin is installed on windows.
     """
+    name = 'ClearCase'
     viewtype = None
 
     def __init__(self, **kwargs):
@@ -72,24 +74,23 @@ class ClearCaseClient(SCMClient):
         if "Error: " in vobstag:
             die("To generate diff run post-review inside vob.")
 
+        root_path = execute(["cleartool", "pwv", "-root"],
+                              ignore_errors=True).strip()
+        if "Error: " in root_path:
+            die("To generate diff run post-review inside view.")
+
         # From current working directory cut path to VOB.
         # VOB's tag contain backslash character before VOB's name.
         # I hope that first character of VOB's tag like '\new_proj'
         # won't be treat as new line character but two separate:
         # backslash and letter 'n'
         cwd = os.getcwd()
-        base_path = cwd[:cwd.find(vobstag) + len(vobstag)]
+        base_path = cwd[:len(root_path) + len(vobstag)]
 
         return ClearCaseRepositoryInfo(path=base_path,
                               base_path=base_path,
                               vobstag=vobstag,
                               supports_parent_diffs=False)
-
-    def check_options(self):
-        if ((self.options.revision_range or self.options.tracking)
-            and self.viewtype != "dynamic"):
-            die("To generate diff using parent branch or by passing revision "
-                "ranges, you must use a dynamic view.")
 
     def _determine_version(self, version_path):
         """Determine numeric version of revision.
@@ -258,9 +259,39 @@ class ClearCaseClient(SCMClient):
 
         Most effective and reliable way is use gnu diff.
         """
-        diff_cmd = ["diff", "-uN", old_file, new_file]
+
+        # in snapshot view, diff can't access history clearcase file version
+        # so copy cc files to tempdir by 'cleartool get -to dest-pname pname',
+        # and compare diff with the new temp ones
+        if self.viewtype == 'snapshot':
+            # create temporary file first
+            tmp_old_file = make_tempfile()
+            tmp_new_file = make_tempfile()
+
+            # delete so cleartool can write to them
+            try:
+                os.remove(tmp_old_file)
+            except OSError:
+                pass
+
+            try:
+                os.remove(tmp_new_file)
+            except OSError:
+                pass
+
+            execute(["cleartool", "get", "-to", tmp_old_file, old_file])
+            execute(["cleartool", "get", "-to", tmp_new_file, new_file])
+            diff_cmd = ["diff", "-uN", tmp_old_file, tmp_new_file]
+        else:
+            diff_cmd = ["diff", "-uN", old_file, new_file]
+
         dl = execute(diff_cmd, extra_ignore_errors=(1, 2),
                      translate_newlines=False)
+
+        # replace temporary file name in diff with the one in snapshot view
+        if self.viewtype == "snapshot":
+            dl = dl.replace(tmp_old_file, old_file)
+            dl = dl.replace(tmp_new_file, new_file)
 
         # If the input file has ^M characters at end of line, lets ignore them.
         dl = dl.replace('\r\r\n', '\r\n')
@@ -329,7 +360,7 @@ class ClearCaseClient(SCMClient):
             dl = []
             if cpath.isdir(new_file):
                 dl = self.diff_directories(old_file, new_file)
-            elif cpath.exists(new_file):
+            elif cpath.exists(new_file) or self.viewtype == 'snapshot':
                 dl = self.diff_files(old_file, new_file)
             else:
                 logging.error("File %s does not exist or access is denied."
@@ -385,7 +416,7 @@ class ClearCaseRepositoryInfo(RepositoryInfo):
         # We didn't found uuid but if version is >= 1.5.3
         # we can try to use VOB's name hoping it is better
         # than current VOB's path.
-        if server.rb_version >= '1.5.3':
+        if parse_version(server.rb_version) >= parse_version('1.5.3'):
             self.path = cpath.split(self.vobstag)[1]
 
         # We didn't find a matching repository on the server.
