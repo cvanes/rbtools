@@ -381,10 +381,10 @@ class GitClient(SCMClient):
         log = execute(["git", "log", parent_branch], ignore_errors=True)
 
         for line in log:
-            m = re.search('depot-paths = "(.+)": change = (\d+)\]', log , re.M)
+            m = re.search('depot-paths = "(.+)": change = (\d+)\]', log, re.M)
             if m:
-                base_path=m.group(1).strip()
-                p4rev=m.group(2).strip()
+                base_path = m.group(1).strip()
+                p4rev = m.group(2).strip()
                 break
 
         for line in diff_lines:
@@ -394,23 +394,32 @@ class GitClient(SCMClient):
                 #
                 # diff --git a/path/to/file b/path/to/file
                 filename = line.split(" ")[2].strip()
-            elif line.startswith("index ") or line.startswith("new file mode "):
+            elif (line.startswith("index ") 
+                  or line.startswith("new file mode ")):
                 # Filter this out.
                 pass
             elif line.startswith("--- "):
                 #see if we can use a more standard p4 call here
-                data = execute(["p4", "files", base_path + filename + "@" + p4rev],
+                data = execute(["p4", "files", 
+                                base_path + filename + "@" + p4rev],
                                ignore_errors=True)
-                m = re.search(r'^' + base_path + filename + '#(\d+).*$', data, re.M)
+                m = re.search(r'^' + base_path + filename + 
+                              '#(\d+).*$', data, re.M)
                 if m:
                     fileVersion = m.group(1).strip()
                 else:
                     fileVersion = 1
 
-                diff_data += "--- %s%s\t%s%s#%s\n" % (base_path, filename, base_path, filename, fileVersion)
+                diff_data += "--- %s%s\t%s%s#%s\n" % (base_path, 
+                                                      filename, 
+                                                      base_path, 
+                                                      filename, 
+                                                      fileVersion)
             elif line.startswith("+++ "):
                 #TODO figure out the TIMESTAMP spec
-                diff_data += "+++ %s%s\t%s\n" % (base_path, filename, "TIMESTAMP")
+                diff_data += "+++ %s%s\t%s\n" % (base_path, 
+                                                 filename, 
+                                                 "TIMESTAMP")
             else:
                 diff_data += line
 
